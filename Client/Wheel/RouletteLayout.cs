@@ -40,6 +40,42 @@ namespace HideoutRoulette.Client.Wheel
             return _redNumbers.Contains(number) ? "red" : "black";
         }
 
+        /// <summary>
+        ///     Does a bet win on this pocket. Only decides which way chips are swept, the server settles the money.
+        /// </summary>
+        public static bool IsWinningBet(string type, int value, int pocket)
+        {
+            // Zero only wins for a straight bet on zero
+            if (pocket == 0)
+            {
+                return type == "straight" && value == 0;
+            }
+
+            switch (type)
+            {
+                case "straight":
+                    return value == pocket;
+                case "red":
+                    return _redNumbers.Contains(pocket);
+                case "black":
+                    return !_redNumbers.Contains(pocket);
+                case "odd":
+                    return pocket % 2 == 1;
+                case "even":
+                    return pocket % 2 == 0;
+                case "low":
+                    return pocket <= 18;
+                case "high":
+                    return pocket >= 19;
+                case "dozen":
+                    return (pocket - 1) / 12 + 1 == value;
+                case "column":
+                    return (pocket - 1) % 3 + 1 == value;
+                default:
+                    return false;
+            }
+        }
+
         public static List<SpotDefinition> CreateSpots()
         {
             var spots = new List<SpotDefinition>

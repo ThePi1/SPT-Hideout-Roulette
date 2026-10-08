@@ -12,14 +12,17 @@ namespace HideoutRoulette.Client.Wheel
     {
         private const int ChipTiers = 4;
 
-        // Smaller than the table so the player can stand close to it
-        private const float CollisionInset = 0.1f;
+        // Slightly inside the rail, so the player can stand right up against the table
+        private const float CollisionInset = 0.02f;
 
         private const float SpotHeight = 0.03f;
         private const float SpotGap = 0.004f;
         private const float WheelSpotRadius = 0.37f;
         private const float WheelSpotHeight = 0.18f;
         private const float WheelRimAboveFelt = 0.1f;
+
+        // From the outside of the table to where swept chips end up
+        private const float EdgeInset = 0.09f;
 
         // From the centre of the table top, far enough to fit the whole table on a 16:10 screen
         private const float CameraDistance = 1.5f;
@@ -69,6 +72,11 @@ namespace HideoutRoulette.Client.Wheel
             BuildSpots(root, table, parts["LayoutOrigin"].position, parts["LayoutFarCorner"].position, interactiveLayer);
             BuildWheel(root, table, parts, interactiveLayer);
             BuildProps(root, table, parts);
+            BuildAudio(rootObject, table);
+
+            // Just inside the rail on either side
+            table.NearEdgeZ = tableMin.z + EdgeInset;
+            table.FarEdgeZ = tableMax.z - EdgeInset;
             BuildPlayMode(root, table, new Vector3((tableMin.x + tableMax.x) / 2f, feltHeight, (tableMin.z + tableMax.z) / 2f));
 
             return table;
@@ -124,12 +132,13 @@ namespace HideoutRoulette.Client.Wheel
         }
 
         /// <summary>
-        ///     Stops the player walking through the table. Kept below the felt so it never blocks the interaction ray.
+        ///     Stops the player walking through the table. On the layer the games character movement collides with,
+        ///     which the interaction ray ignores.
         /// </summary>
         private static void BuildCollision(Transform root, Vector3 tableMin, Vector3 tableMax, float feltHeight)
         {
             var collision = new GameObject("Collision");
-            collision.layer = LayerMask.NameToLayer("HighPolyCollider");
+            collision.layer = LayerMask.NameToLayer("LowPolyCollider");
             collision.transform.SetParent(root, false);
 
             var height = feltHeight - 0.04f;
@@ -231,6 +240,18 @@ namespace HideoutRoulette.Client.Wheel
             dolly.SetParent(root, true);
             dolly.gameObject.SetActive(false);
             table.Dolly = dolly;
+        }
+
+        private static void BuildAudio(GameObject rootObject, RouletteTable table)
+        {
+            var audio = rootObject.AddComponent<TableAudio>();
+            audio.BallRolls = new[] { TableAssets.GetClip("BallRoll1"), TableAssets.GetClip("BallRoll2"), TableAssets.GetClip("BallRoll3") };
+            audio.BallClack = TableAssets.GetClip("BallClack");
+            audio.ChipPlace = TableAssets.GetClip("ChipPlace");
+            audio.ChipsSweep = TableAssets.GetClip("ChipsSweep");
+            audio.Win = TableAssets.GetClip("Win");
+            audio.Lose = TableAssets.GetClip("Lose");
+            table.Audio = audio;
         }
 
         /// <summary>

@@ -51,6 +51,17 @@ namespace HideoutRoulette.Client.Wheel
         }
 
         /// <summary>
+        ///     Hand over the chips standing here, leaving the spot empty. The caller becomes responsible for destroying them.
+        /// </summary>
+        public List<GameObject> ReleaseChips()
+        {
+            var released = new List<GameObject>(_chips);
+            _chips.Clear();
+
+            return released;
+        }
+
+        /// <summary>
         ///     Show the chips that make up the amount bet here, one stack per denomination, none for zero
         /// </summary>
         public void ShowChips(long amount, long smallestChip)

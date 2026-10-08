@@ -53,5 +53,20 @@ namespace HideoutRoulette.Client.Wheel
 
             return _tablePrefab;
         }
+
+        /// <summary>
+        ///     A sound from the bundle by name, null when it is not there
+        /// </summary>
+        public static AudioClip GetClip(string name)
+        {
+            // Unity null check, the bundle is only set once the table prefab has been asked for
+            var clip = _bundle != null ? _bundle.LoadAsset<AudioClip>(name) : null;
+            if (clip == null)
+            {
+                Plugin.Log.LogWarning($"{BundleFileName} has no sound named {name}");
+            }
+
+            return clip;
+        }
     }
 }

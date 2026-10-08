@@ -10,27 +10,47 @@ using UnityEngine;
 namespace HideoutRoulette.Client.Wheel
 {
     /// <summary>
-    ///     Bets, spinning and animation for one table. Only depends on the transforms below,
-    ///     so the visuals can come from code or from a prefab with the same parts.
+    ///     Bets, spinning and animation for one table. Only depends on the parts assigned below, TableFactory fills
+    ///     them in from the model.
     /// </summary>
     public class RouletteTable : MonoBehaviour
     {
-        private const float SpinSeconds = 7f;
-        private const float BallSeconds = 5.5f;
+        private const float SpinSeconds = 9f;
+
+        // When the ball first lands in the pocket ring, and how long before that it leaves the outer track
+        private const float BallSeconds = 6.5f;
         private const float BallDropSeconds = 1.5f;
-        private const float WheelSpinDegrees = 900f;
-        private const float BallSpinDegrees = 1440f;
+        private const float WheelSpinDegrees = 1080f;
+
+        // Whole turns only: the landing sums rely on the extra laps not changing where the ball ends up
+        private const int BallSpinTurns = 5;
+
+        // The ball lands this many pockets short of the winning one and hops the rest of the way
+        private const int SettleHops = 2;
+        private const float ChipSweepSeconds = 0.55f;
+
+        // (start, end, height). While dropping from the track, as a fraction of the drop.
+        private static readonly (float Start, float End, float Height)[] _dropBounces = { (0.2f, 0.45f, 0.018f), (0.45f, 0.8f, 0.022f), (0.8f, 1f, 0.01f) };
+
+        // Once in the pocket ring, in seconds after landing. The first two carry the ball one pocket onwards each.
+        private static readonly (float Start, float End, float Height)[] _settleBounces = { (0f, 0.38f, 0.022f), (0.38f, 0.7f, 0.013f), (0.7f, 0.9f, 0.005f) };
 
         public Transform Disc;
         public Transform Ball;
+
         // Win marker, its origin is at its base
         public Transform Dolly;
         public TablePlayMode PlayMode;
+        public TableAudio Audio;
 
         // One hidden chip per denomination tier, lowest first, copied into stacks on the betting spots
         public GameObject[] ChipTemplates;
         public float ChipThickness;
         public List<BetSpot> Spots = new List<BetSpot>();
+
+        // Edges of the playing surface chips are swept to, in the tables local space: towards the player and away from them
+        public float NearEdgeZ;
+        public float FarEdgeZ;
 
         // Ball path, in the tables local space
         public Vector3 WheelCentre;
@@ -45,6 +65,9 @@ namespace HideoutRoulette.Client.Wheel
         private readonly Dictionary<BetSpot, long> _bets = new Dictionary<BetSpot, long>();
         private Dictionary<BetSpot, long> _lastBets;
         private RouletteConfig _config = new RouletteConfig();
+
+        // Chips sliding off the table, no longer owned by a betting spot
+        private readonly List<GameObject> _looseChips = new List<GameObject>();
 
         // Degrees clockwise seen from above, the ball angle is relative to the table not the disc
         private float _wheelAngle;
@@ -80,6 +103,19 @@ namespace HideoutRoulette.Client.Wheel
         {
             // Coroutines die when the hideout is hidden, the server has already settled the spin by then
             Spinning = false;
+        }
+
+        private void OnDisable()
+        {
+            Audio.SetRoll(0f);
+
+            // Their sweep coroutine has just died with everything else
+            foreach (var chip in _looseChips)
+            {
+                Destroy(chip);
+            }
+
+            _looseChips.Clear();
         }
 
         /// <summary>
@@ -122,19 +158,32 @@ namespace HideoutRoulette.Client.Wheel
             }
 
             SetBet(spot, GetBet(spot) + amount);
+            Audio.PlayChip();
         }
 
         public void RemoveFromBet(BetSpot spot, long amount)
         {
+            if (GetBet(spot) <= 0)
+            {
+                return;
+            }
+
             SetBet(spot, Math.Max(0, GetBet(spot) - amount));
+            Audio.PlayChip();
         }
 
+        /// <summary>
+        ///     Hand every bet back, the chips slide to the players side of the table
+        /// </summary>
         public void ClearAllBets()
         {
-            foreach (var spot in _bets.Keys.ToList())
+            if (_bets.Count == 0)
             {
-                SetBet(spot, 0);
+                return;
             }
+
+            SweepChips(_bets.Keys, NearEdgeZ);
+            _bets.Clear();
         }
 
         public void RepeatLastBets()
@@ -143,6 +192,8 @@ namespace HideoutRoulette.Client.Wheel
             {
                 SetBet(bet.Key, bet.Value);
             }
+
+            Audio.PlayChip();
         }
 
         private void SetBet(BetSpot spot, long amount)
@@ -210,18 +261,38 @@ namespace HideoutRoulette.Client.Wheel
         }
 
         /// <summary>
-        ///     Wheel turns one way and slows, ball circles the other way, drops in and is carried round in the winning pocket
+        ///     Wheel turns one way and slows. The ball circles the other way, bounces down off the track, lands a couple
+        ///     of pockets short and hops into the winning one, then is carried round in it.
         /// </summary>
         private IEnumerator Animate(RouletteSpinResult result)
         {
             var pocketAngle = PocketAngles[result.Pocket];
+            var pocketStep = 360f / RouletteLayout.PocketCount;
             var wheelStart = _wheelAngle;
             var ballStart = _ballAngle;
 
-            // Pick the balls travel so it comes to rest exactly over the winning pocket
-            var wheelAtBallStop = wheelStart + WheelSpinDegrees * EaseOut(BallSeconds / SpinSeconds);
-            var ballTravel = BallSpinDegrees + Mathf.Repeat(ballStart - wheelAtBallStop - pocketAngle, 360f);
+            // Seen from the wheel the ball is travelling towards lower angles, so it lands on the high side of its pocket.
+            // Its travel round the track is picked to bring it down exactly there.
+            var landingAngle = pocketAngle + SettleHops * pocketStep;
+            var wheelAtLanding = wheelStart + WheelSpinDegrees * EaseOut(BallSeconds / SpinSeconds);
+            var ballTravel = BallSpinTurns * 360f + Mathf.Repeat(ballStart - wheelAtLanding - landingAngle, 360f);
 
+            // Every time the ball comes down on something: (seconds into the spin, loudness)
+            var dropStart = BallSeconds - BallDropSeconds;
+            var impacts = new List<(float Time, float Volume)>();
+            foreach (var bounce in _dropBounces)
+            {
+                impacts.Add((dropStart + bounce.End * BallDropSeconds, 0.4f + bounce.Height * 25f));
+            }
+
+            foreach (var bounce in _settleBounces)
+            {
+                impacts.Add((BallSeconds + bounce.End, 0.25f + bounce.Height * 25f));
+            }
+
+            Audio.PickRoll();
+
+            var nextImpact = 0;
             var elapsed = 0f;
             while (elapsed < SpinSeconds)
             {
@@ -233,13 +304,38 @@ namespace HideoutRoulette.Client.Wheel
                 if (elapsed < BallSeconds)
                 {
                     _ballAngle = ballStart - ballTravel * EaseOut(elapsed / BallSeconds);
-                    var drop = Mathf.SmoothStep(0f, 1f, (elapsed - (BallSeconds - BallDropSeconds)) / BallDropSeconds);
-                    SetBall(_ballAngle, Mathf.Lerp(TrackRadius, PocketRadius, drop), Mathf.Lerp(TrackHeight, PocketHeight, drop));
+
+                    var dropProgress = Mathf.Clamp01((elapsed - dropStart) / BallDropSeconds);
+                    var drop = Mathf.SmoothStep(0f, 1f, dropProgress);
+                    SetBall(
+                        _ballAngle,
+                        Mathf.Lerp(TrackRadius, PocketRadius, drop),
+                        Mathf.Lerp(TrackHeight, PocketHeight, drop) + BounceHeight(_dropBounces, dropProgress)
+                    );
+
+                    // The ball slows steadily, and stops rolling on the track as it bounces off it
+                    Audio.SetRoll((1f - elapsed / BallSeconds) * (1f - drop));
                 }
                 else
                 {
-                    _ballAngle = _wheelAngle + pocketAngle;
-                    SetBall(_ballAngle, PocketRadius, PocketHeight);
+                    var settle = elapsed - BallSeconds;
+
+                    // One pocket further on with each of the first hops
+                    var pocketsToGo = 0f;
+                    for (var hop = 0; hop < SettleHops; hop++)
+                    {
+                        pocketsToGo += 1f - Mathf.Clamp01((settle - _settleBounces[hop].Start) / (_settleBounces[hop].End - _settleBounces[hop].Start));
+                    }
+
+                    _ballAngle = _wheelAngle + pocketAngle + pocketsToGo * pocketStep;
+                    SetBall(_ballAngle, PocketRadius, PocketHeight + BounceHeight(_settleBounces, settle));
+                    Audio.SetRoll(0f);
+                }
+
+                while (nextImpact < impacts.Count && elapsed >= impacts[nextImpact].Time)
+                {
+                    Audio.PlayClack(impacts[nextImpact].Volume);
+                    nextImpact++;
                 }
 
                 yield return null;
@@ -248,8 +344,27 @@ namespace HideoutRoulette.Client.Wheel
             Finish(result);
         }
 
+        /// <summary>
+        ///     Height above the surface for a run of bounces, each a simple arc
+        /// </summary>
+        private static float BounceHeight((float Start, float End, float Height)[] bounces, float position)
+        {
+            foreach (var bounce in bounces)
+            {
+                if (position >= bounce.Start && position < bounce.End)
+                {
+                    var progress = (position - bounce.Start) / (bounce.End - bounce.Start);
+
+                    return bounce.Height * 4f * progress * (1f - progress);
+                }
+            }
+
+            return 0f;
+        }
+
         private void Finish(RouletteSpinResult result)
         {
+            Audio.SetRoll(0f);
             _ballAngle = _wheelAngle + PocketAngles[result.Pocket];
             SetBall(_ballAngle, PocketRadius, PocketHeight);
 
@@ -260,14 +375,96 @@ namespace HideoutRoulette.Client.Wheel
                 Dolly.gameObject.SetActive(true);
             }
 
+            // Winning bets come back to the player, the house takes the rest
             _lastBets = new Dictionary<BetSpot, long>(_bets);
-            ClearAllBets();
+            var winners = _bets.Keys.Where(spot => RouletteLayout.IsWinningBet(spot.Definition.Type, spot.Definition.Value, result.Pocket)).ToList();
+            SweepChips(winners, NearEdgeZ);
+            SweepChips(_bets.Keys.Except(winners).ToList(), FarEdgeZ);
+            _bets.Clear();
             Spinning = false;
+
+            if (result.Net > 0)
+            {
+                Audio.PlayWin();
+            }
+            else if (result.Net < 0)
+            {
+                Audio.PlayLose();
+            }
 
             var outcome = result.Net >= 0 ? $"won {result.Net:N0}" : $"lost {Math.Abs(result.Net):N0}";
             var mail = result.PaidByMail ? " (stash full, winnings sent by mail)" : string.Empty;
             LastResult = $"{result.Pocket} {result.Color}, you {outcome} roubles{mail}";
             NotificationManagerClass.DisplayMessageNotification($"Roulette: {LastResult}", ENotificationDurationType.Long);
+        }
+
+        /// <summary>
+        ///     Take the chips off these spots and slide them to one edge of the table
+        /// </summary>
+        private void SweepChips(IEnumerable<BetSpot> spots, float edgeZ)
+        {
+            var chips = new List<GameObject>();
+            foreach (var spot in spots)
+            {
+                chips.AddRange(spot.ReleaseChips());
+            }
+
+            if (chips.Count == 0)
+            {
+                return;
+            }
+
+            // Nothing would move them while the hideout is hidden
+            if (!isActiveAndEnabled)
+            {
+                foreach (var chip in chips)
+                {
+                    Destroy(chip);
+                }
+
+                return;
+            }
+
+            Audio.PlaySweep();
+            StartCoroutine(SlideChips(chips, edgeZ));
+        }
+
+        private IEnumerator SlideChips(List<GameObject> chips, float edgeZ)
+        {
+            _looseChips.AddRange(chips);
+
+            var starts = new Vector3[chips.Count];
+            for (var i = 0; i < chips.Count; i++)
+            {
+                chips[i].transform.SetParent(transform, true);
+                starts[i] = chips[i].transform.localPosition;
+            }
+
+            var elapsed = 0f;
+            while (elapsed < ChipSweepSeconds)
+            {
+                elapsed += Time.deltaTime;
+                var progress = Mathf.Clamp01(elapsed / ChipSweepSeconds);
+
+                // Gather speed across the felt, then shrink away at the rail
+                var travelled = progress * progress;
+                var scale = 1f - Mathf.SmoothStep(0f, 1f, (progress - 0.7f) / 0.3f);
+                for (var i = 0; i < chips.Count; i++)
+                {
+                    var position = starts[i];
+                    position.z = Mathf.Lerp(starts[i].z, edgeZ, travelled);
+                    chips[i].transform.localPosition = position;
+                    chips[i].transform.localScale = Vector3.one * scale;
+                }
+
+                yield return null;
+            }
+
+            foreach (var chip in chips)
+            {
+                _looseChips.Remove(chip);
+                Destroy(chip);
+            }
         }
 
         private void SetBall(float angle, float radius, float height)

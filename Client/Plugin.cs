@@ -21,6 +21,7 @@ namespace HideoutRoulette.Client
         internal static ConfigEntry<float> TableYaw;
         internal static ConfigEntry<KeyboardShortcut> MoveTableKey;
         internal static ConfigEntry<float> CameraAngle;
+        internal static ConfigEntry<float> Volume;
 
         private void Awake()
         {
@@ -45,6 +46,13 @@ namespace HideoutRoulette.Client
                     "Tilt of the camera while playing, in degrees. 0 looks straight down at the table, higher values view it from the players side.",
                     new AcceptableValueRange<float>(0f, 75f)
                 )
+            );
+
+            Volume = Config.Bind(
+                "Sound",
+                "Volume",
+                0.7f,
+                new ConfigDescription("Loudness of the tables sounds, on top of the games own volume settings", new AcceptableValueRange<float>(0f, 1f))
             );
 
             TablePosition.SettingChanged += (sender, args) => WheelSpawner.ApplyPlacement();

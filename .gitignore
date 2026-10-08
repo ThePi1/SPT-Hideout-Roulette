@@ -9,7 +9,8 @@ Unity/Library/
 Unity/Temp/
 Unity/Logs/
 Unity/UserSettings/
-Unity/Build/
+Unity/Build/*
+!Unity/Build/hideoutroulette.bundle
 Unity/*.csproj
 Unity/*.sln
 

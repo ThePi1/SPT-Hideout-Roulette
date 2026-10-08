@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>HideoutRoulette.Client</RootNamespace>
+    <AssemblyName>HideoutRoulette.Client</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Version>0.1.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- Game install to compile against, override with: dotnet build -p:SptDir=... -->
+    <SptDir Condition="'$(SptDir)' == ''">I:\Games\spt-4-0-13-hideoutroulette</SptDir>
+    <Managed>$(SptDir)\EscapeFromTarkov_Data\Managed</Managed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp" HintPath="$(Managed)\Assembly-CSharp.dll" Private="False" />
+    <Reference Include="Comfort" HintPath="$(Managed)\Comfort.dll" Private="False" />
+    <Reference Include="Comfort.Unity" HintPath="$(Managed)\Comfort.Unity.dll" Private="False" />
+    <Reference Include="Newtonsoft.Json" HintPath="$(Managed)\Newtonsoft.Json.dll" Private="False" />
+    <Reference Include="Sirenix.Serialization" HintPath="$(Managed)\Sirenix.Serialization.dll" Private="False" />
+    <Reference Include="UnityEngine" HintPath="$(Managed)\UnityEngine.dll" Private="False" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(Managed)\UnityEngine.CoreModule.dll" Private="False" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(Managed)\UnityEngine.PhysicsModule.dll" Private="False" />
+    <Reference Include="UnityEngine.IMGUIModule" HintPath="$(Managed)\UnityEngine.IMGUIModule.dll" Private="False" />
+    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(Managed)\UnityEngine.TextRenderingModule.dll" Private="False" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(Managed)\UnityEngine.InputLegacyModule.dll" Private="False" />
+    <Reference Include="BepInEx" HintPath="$(SptDir)\BepInEx\core\BepInEx.dll" Private="False" />
+    <Reference Include="0Harmony" HintPath="$(SptDir)\BepInEx\core\0Harmony.dll" Private="False" />
+    <Reference Include="spt-common" HintPath="$(SptDir)\BepInEx\plugins\spt\spt-common.dll" Private="False" />
+    <Reference Include="spt-reflection" HintPath="$(SptDir)\BepInEx\plugins\spt\spt-reflection.dll" Private="False" />
+  </ItemGroup>
+</Project>

@@ -79,10 +79,10 @@ CHIP_SEGMENTS = 24
 
 # name: (base colour, metallic, roughness)
 MATERIALS = {
-    "Wood": ((0.16, 0.06, 0.025), 0.0, 0.65),
-    "WoodLight": ((0.42, 0.2, 0.08), 0.0, 0.6),
+    "Wood": ((0.16, 0.06, 0.025), 0.0, 0.78),
+    "WoodLight": ((0.42, 0.2, 0.08), 0.0, 0.72),
     "Brass": ((0.83, 0.62, 0.25), 1.0, 0.3),
-    "Leather": ((0.045, 0.02, 0.012), 0.0, 0.55),
+    "Leather": ((0.045, 0.02, 0.012), 0.0, 0.68),
     "Felt": ((0.015, 0.19, 0.07), 0.0, 0.95),
     "LayoutPrint": ((0.85, 0.78, 0.55), 0.0, 0.85),
     "LayoutRed": ((0.5, 0.03, 0.03), 0.0, 0.9),
@@ -139,8 +139,16 @@ def finish_mesh(name, bm, materials, smooth_angle=40, flat_print=False):
                 face.normal_flip()
     else:
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    # Texture coordinates are in metres. Faces that were not unwrapped by their builder, and any that face up or down,
+    # take them straight from position seen from above, with the grain along the length of the table. A flat piece of
+    # wood shows its grain that way however it was turned.
+    uv_layer, unwrapped = uv_layers(bm)
+    bm.normal_update()
     for face in bm.faces:
         face.smooth = True
+        if not face[unwrapped] or abs(face.normal.z) > 0.7:
+            for loop in face.loops:
+                loop[uv_layer].uv = (loop.vert.co.y, loop.vert.co.x)
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
@@ -155,8 +163,36 @@ def finish_mesh(name, bm, materials, smooth_angle=40, flat_print=False):
     return obj
 
 
-def add_lathe(bm, profile, material_index=0, segments=SEGMENTS, centre=(0.0, 0.0)):
-    """Revolve a list of (radius, z) points round a vertical axis. Points on the axis become a single vertex."""
+def uv_layers(bm):
+    """Texture coordinate layer, and a per face flag saying the face was unwrapped by whatever built it."""
+    flag = bm.faces.layers.int.get("unwrapped") or bm.faces.layers.int.new("unwrapped")
+    return bm.loops.layers.uv.verify(), flag
+
+
+def set_face_uvs(bm, face, coordinates):
+    """Texture coordinates in metres for each corner of a face, in the order its vertices were given."""
+    uv_layer, flag = uv_layers(bm)
+    for loop, coordinate in zip(face.loops, coordinates):
+        loop[uv_layer].uv = coordinate
+    face[flag] = 1
+
+
+def running_length(points):
+    """Distance along a line of points up to each one."""
+    lengths = [0.0]
+    for (a0, b0), (a1, b1) in zip(points, points[1:]):
+        lengths.append(lengths[-1] + math.hypot(a1 - a0, b1 - b0))
+    return lengths
+
+
+def add_lathe(bm, profile, material_index=0, segments=SEGMENTS, centre=(0.0, 0.0), grain_around=False):
+    """Revolve a list of (radius, z) points round a vertical axis. Points on the axis become a single vertex.
+
+    Unwrapped like a label round a tin. Textures run their grain along V, which is up the shape unless grain_around.
+    """
+    # Adding a data layer invalidates faces already held, so the layers have to exist before any are made
+    uv_layers(bm)
+
     rings = []
     for radius, z in profile:
         if radius < 1e-6:
@@ -164,18 +200,28 @@ def add_lathe(bm, profile, material_index=0, segments=SEGMENTS, centre=(0.0, 0.0
         else:
             rings.append([bm.verts.new(polar(radius, 2 * math.pi * i / segments, z, centre)) for i in range(segments)])
 
-    for lower, upper in zip(rings, rings[1:]):
+    along = running_length(profile)
+    girth = 2 * math.pi * max(radius for radius, _ in profile)
+
+    def uv(ring, step):
+        around, up = girth * step / segments, along[ring]
+        return (up, around) if grain_around else (around, up)
+
+    for ring, (lower, upper) in enumerate(zip(rings, rings[1:])):
         for i in range(segments):
             j = (i + 1) % segments
             if len(lower) == 1 and len(upper) == 1:
                 continue
             if len(lower) == 1:
-                verts = (lower[0], upper[i], upper[j])
+                verts, uvs = (lower[0], upper[i], upper[j]), (uv(ring, i), uv(ring + 1, i), uv(ring + 1, i + 1))
             elif len(upper) == 1:
-                verts = (lower[i], lower[j], upper[0])
+                verts, uvs = (lower[i], lower[j], upper[0]), (uv(ring, i), uv(ring, i + 1), uv(ring + 1, i))
             else:
                 verts = (lower[i], lower[j], upper[j], upper[i])
-            bm.faces.new(verts).material_index = material_index
+                uvs = (uv(ring, i), uv(ring, i + 1), uv(ring + 1, i + 1), uv(ring + 1, i))
+            face = bm.faces.new(verts)
+            face.material_index = material_index
+            set_face_uvs(bm, face, uvs)
 
 
 def add_box(bm, corners_bottom, height, material_index=0):
@@ -235,12 +281,20 @@ def rounded_rect_path(min_x, max_x, min_y, max_y, radius, corner_steps=8):
 
 
 def add_sweep(bm, path, profile, material_index=0):
-    """Run a profile of (outward offset, z) points round a closed path."""
+    """Run a profile of (outward offset, z) points round a closed path. Unwrapped with the grain running along the path."""
+    uv_layers(bm)
     rings = [[bm.verts.new((x + nx * offset, y + ny * offset, z)) for offset, z in profile] for x, y, nx, ny in path]
+    across = running_length(profile)
+    closed_path = [(x, y) for x, y, _, _ in path] + [path[0][:2]]
+    along = running_length(closed_path)
     for index, ring in enumerate(rings):
         following = rings[(index + 1) % len(rings)]
         for k in range(len(profile) - 1):
-            bm.faces.new((ring[k], following[k], following[k + 1], ring[k + 1])).material_index = material_index
+            face = bm.faces.new((ring[k], following[k], following[k + 1], ring[k + 1]))
+            face.material_index = material_index
+            set_face_uvs(
+                bm, face, ((across[k], along[index]), (across[k], along[index + 1]), (across[k + 1], along[index + 1]), (across[k + 1], along[index]))
+            )
 
 
 def add_path_cap(bm, path, offset, z, material_index=0):
@@ -424,7 +478,7 @@ def build_bowl():
     bm = bmesh.new()
 
     # Outside wall, rim, then the sloped track the ball runs on, down to the floor under the rotor
-    add_lathe(bm, [(0.0, 0.0), (0.355, 0.0), (0.365, 0.012), (0.365, 0.086), (0.358, 0.097), (0.338, 0.097), (0.328, 0.084)], material_index=0)
+    add_lathe(bm, [(0.0, 0.0), (0.355, 0.0), (0.365, 0.012), (0.365, 0.086), (0.358, 0.097), (0.338, 0.097), (0.328, 0.084)], material_index=0, grain_around=True)
     add_lathe(bm, [(0.328, 0.084), (0.31, 0.066), (0.276, 0.05), (0.274, 0.03), (0.0, 0.03)], material_index=1)
 
     # Brass band round the top of the rim

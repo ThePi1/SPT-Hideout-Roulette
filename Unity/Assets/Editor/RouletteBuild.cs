@@ -14,7 +14,19 @@ public static class RouletteBuild
     private const string MaterialsJsonPath = "Assets/Roulette/RouletteTable.materials.json";
     private const string MaterialsFolder = "Assets/Roulette/Materials";
     private const string PrefabPath = "Assets/Roulette/RouletteTable.prefab";
+    private const string AudioFolder = "Assets/Roulette/Audio";
+    private const string TexturesFolder = "Assets/Roulette/Textures";
     private const string BundleName = "hideoutroulette.bundle";
+
+    // Model texture coordinates are in metres, so this is how many times the felt texture repeats across one metre
+    private const float FeltTilesPerMetre = 3f;
+
+    private const float WoodTilesPerMetre = 2f;
+    private const float LeatherTilesPerMetre = 7f;
+
+    private static readonly string[] _feltMaterials = { "Felt", "LayoutRed", "LayoutBlack", "LayoutGreen", "LayoutPrint" };
+    private static readonly string[] _woodMaterials = { "Wood", "WoodLight" };
+    private static readonly string[] _leatherMaterials = { "Leather" };
     private const string OutputFolder = "Build";
 
     [Serializable]
@@ -36,13 +48,23 @@ public static class RouletteBuild
 
     public static void Build()
     {
+        AssetDatabase.Refresh();
+        ImportTextures();
+        var audioPaths = ImportAudio();
+
         var materials = CreateMaterials();
+        ApplyFelt(materials);
+        ApplyTexture(materials, _woodMaterials, "Wood", WoodTilesPerMetre);
+        ApplyTexture(materials, _leatherMaterials, "Leather", LeatherTilesPerMetre);
         ImportModel(materials);
         CreatePrefab();
         RenderPreview();
 
+        var assetNames = new List<string> { PrefabPath };
+        assetNames.AddRange(audioPaths);
+
         Directory.CreateDirectory(OutputFolder);
-        var build = new AssetBundleBuild { assetBundleName = BundleName, assetNames = new[] { PrefabPath } };
+        var build = new AssetBundleBuild { assetBundleName = BundleName, assetNames = assetNames.ToArray() };
         var manifest = BuildPipeline.BuildAssetBundles(OutputFolder, new[] { build }, BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
         if (manifest == null)
         {
@@ -50,6 +72,88 @@ public static class RouletteBuild
         }
 
         Debug.Log($"ROULETTE bundle built: {Path.Combine(OutputFolder, BundleName)}");
+    }
+
+    /// <summary>
+    ///     Every texture tiles. Files named ...Normal are surface grain maps, the rest are colour.
+    /// </summary>
+    private static void ImportTextures()
+    {
+        foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { TexturesFolder }))
+        {
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = Path.GetFileNameWithoutExtension(path).EndsWith("Normal") ? TextureImporterType.NormalMap : TextureImporterType.Default;
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.anisoLevel = 8;
+            importer.SaveAndReimport();
+        }
+    }
+
+    /// <summary>
+    ///     Give materials the colour and surface grain textures called [texture]Albedo and [texture]Normal
+    /// </summary>
+    private static void ApplyTexture(Dictionary<string, Material> materials, string[] names, string texture, float tilesPerMetre)
+    {
+        var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>($"{TexturesFolder}/{texture}Albedo.png");
+        var normal = AssetDatabase.LoadAssetAtPath<Texture2D>($"{TexturesFolder}/{texture}Normal.png");
+        foreach (var name in names)
+        {
+            var material = materials[name];
+            material.mainTexture = albedo;
+            material.mainTextureScale = new Vector2(tilesPerMetre, tilesPerMetre);
+            material.SetTexture("_BumpMap", normal);
+            material.SetTextureScale("_BumpMap", new Vector2(tilesPerMetre, tilesPerMetre));
+            material.SetFloat("_BumpScale", 1f);
+            material.EnableKeyword("_NORMALMAP");
+            EditorUtility.SetDirty(material);
+        }
+
+        AssetDatabase.SaveAssets();
+    }
+
+    /// <summary>
+    ///     Sounds are short, so they are stored uncompressed: no decoding hitch and the rolling loop stays seamless
+    /// </summary>
+    private static List<string> ImportAudio()
+    {
+        var paths = new List<string>();
+        foreach (var guid in AssetDatabase.FindAssets("t:AudioClip", new[] { AudioFolder }))
+        {
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            var importer = (AudioImporter)AssetImporter.GetAtPath(path);
+            var settings = importer.defaultSampleSettings;
+            settings.loadType = AudioClipLoadType.DecompressOnLoad;
+            settings.compressionFormat = AudioCompressionFormat.PCM;
+            importer.defaultSampleSettings = settings;
+            importer.forceToMono = true;
+            importer.SaveAndReimport();
+            paths.Add(path);
+        }
+
+        return paths;
+    }
+
+    /// <summary>
+    ///     Fibre texture on the felt, and on the layout printed onto it
+    /// </summary>
+    private static void ApplyFelt(Dictionary<string, Material> materials)
+    {
+        ApplyTexture(materials, _feltMaterials, "Felt", FeltTilesPerMetre);
+        foreach (var name in _feltMaterials)
+        {
+            var material = materials[name];
+
+            // Cloth has no shine at all
+            material.SetFloat("_Glossiness", 0f);
+            material.SetFloat("_SpecularHighlights", 0f);
+            material.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            material.SetFloat("_GlossyReflections", 0f);
+            material.EnableKeyword("_GLOSSYREFLECTIONS_OFF");
+            EditorUtility.SetDirty(material);
+        }
+
+        AssetDatabase.SaveAssets();
     }
 
     /// <summary>
@@ -160,6 +264,10 @@ public static class RouletteBuild
         Directory.CreateDirectory(OutputFolder);
         Capture(camera, texture, new Vector3(0.05f, 4.3f, 0f), Quaternion.Euler(90f, 0f, 0f), "preview_top.png");
         Capture(camera, texture, new Vector3(0.05f, 2.45f, -1.5f), Quaternion.Euler(45f, 0f, 0f), "preview_player.png");
+
+        // Low and close, for the wood and leather on the sides
+        var sidePosition = new Vector3(-1.45f, 1.25f, -1.15f);
+        Capture(camera, texture, sidePosition, Quaternion.LookRotation(new Vector3(-0.55f, 0.8f, 0f) - sidePosition), "preview_side.png");
 
         camera.targetTexture = null;
         UnityEngine.Object.DestroyImmediate(texture);

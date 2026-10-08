@@ -6,7 +6,7 @@
       "g": 0.06,
       "b": 0.025,
       "metallic": 0.0,
-      "roughness": 0.65
+      "roughness": 0.78
     },
     {
       "name": "WoodLight",
@@ -14,7 +14,7 @@
       "g": 0.2,
       "b": 0.08,
       "metallic": 0.0,
-      "roughness": 0.6
+      "roughness": 0.72
     },
     {
       "name": "Brass",
@@ -30,7 +30,7 @@
       "g": 0.02,
       "b": 0.012,
       "metallic": 0.0,
-      "roughness": 0.55
+      "roughness": 0.68
     },
     {
       "name": "Felt",

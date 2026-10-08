@@ -1,11 +1,10 @@
 using EFT;
-using EFT.Communications;
 using UnityEngine;
 
 namespace HideoutRoulette.Client.Wheel
 {
     /// <summary>
-    ///     Keeps a single roulette table in the hideout scene at the position saved in the plugin config
+    ///     Keeps a single roulette table in the hideout scene at the position in the plugin config
     /// </summary>
     public static class WheelSpawner
     {
@@ -19,23 +18,38 @@ namespace HideoutRoulette.Client.Wheel
         {
             _owner = owner;
 
-            if (!Plugin.WheelPlaced.Value)
+            if (_table == null)
             {
-                NotificationManagerClass.DisplayMessageNotification(
-                    $"Roulette: press {Plugin.PlaceWheelKey.Value} in the hideout to place the wheel",
-                    ENotificationDurationType.Long
-                );
+                _table = TableFactory.Create();
+                if (_table == null)
+                {
+                    NotificationManagerClass.DisplayWarningNotification(
+                        $"Roulette: table model could not be loaded, check {TableAssets.BundleFileName} is in the plugin folder"
+                    );
+                }
+            }
 
+            ApplyPlacement();
+        }
+
+        /// <summary>
+        ///     Move the table to the configured position, also runs when the settings are edited or reset
+        /// </summary>
+        public static void ApplyPlacement()
+        {
+            // Unity null check, the table is destroyed when the hideout unloads
+            if (_table == null)
+            {
                 return;
             }
 
-            EnsureWheel();
+            _table.transform.SetPositionAndRotation(Plugin.TablePosition.Value, Quaternion.Euler(0f, Plugin.TableYaw.Value, 0f));
         }
 
         public static void PlaceInFrontOfPlayer()
         {
             // Unity null check, the owner is destroyed when the hideout unloads
-            if (_owner == null || _owner.Player == null)
+            if (_owner == null || _owner.Player == null || TablePlayMode.Current != null)
             {
                 return;
             }
@@ -43,22 +57,11 @@ namespace HideoutRoulette.Client.Wheel
             var playerTransform = _owner.Player.gameObject.transform;
             var forward = Vector3.ProjectOnPlane(playerTransform.forward, Vector3.up).normalized;
 
-            Plugin.WheelPosition.Value = playerTransform.position + forward * PlacementDistance;
-            Plugin.WheelYaw.Value = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
-            Plugin.WheelPlaced.Value = true;
+            // Each assignment moves the table through the settings changed handlers
+            Plugin.TablePosition.Value = playerTransform.position + forward * PlacementDistance;
+            Plugin.TableYaw.Value = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
 
-            EnsureWheel();
-            Plugin.Log.LogInfo($"Wheel placed at {Plugin.WheelPosition.Value}, yaw {Plugin.WheelYaw.Value}");
-        }
-
-        private static void EnsureWheel()
-        {
-            if (_table == null)
-            {
-                _table = TableFactory.Create();
-            }
-
-            _table.transform.SetPositionAndRotation(Plugin.WheelPosition.Value, Quaternion.Euler(0f, Plugin.WheelYaw.Value, 0f));
+            Plugin.Log.LogInfo($"Table moved to {Plugin.TablePosition.Value}, yaw {Plugin.TableYaw.Value}");
         }
     }
 }

@@ -9,28 +9,38 @@ namespace HideoutRoulette.Client.Wheel
     /// </summary>
     public class TablePlayMode : MonoBehaviour
     {
-        private const float PickDistance = 5f;
         private const float HighlightLift = 0.004f;
+        private const float HudWidth = 560f;
+        private const float HudHeight = 195f;
+        private const float HudMargin = 20f;
 
         public RouletteTable Table;
         public Camera Camera;
         public Light Lamp;
         public Transform Highlight;
 
+        // Point on the table the camera looks at and how far back it sits, in the tables local space
+        public Vector3 CameraPivot;
+        public float CameraDistance;
+
+        // Height of the playing surface in the tables local space
+        public float FeltHeight;
+
+        // Disc the wheel is clicked on: its radius, and the height of its rim in the tables local space
+        public float WheelRadius;
+        public float WheelRimHeight;
+
         private HideoutPlayerOwner _owner;
+
+        // The games dot in the middle of the screen, hidden while the cursor is in use
+        private UIPointer _pointer;
         private int _chipIndex;
-        private int _pickMask;
         private GUIStyle _hudStyle;
 
         /// <summary>
         ///     Table currently being played, null when the player is walking around
         /// </summary>
         public static TablePlayMode Current { get; private set; }
-
-        private void Awake()
-        {
-            _pickMask = 1 << LayerMask.NameToLayer("Interactive");
-        }
 
         public void Enter(HideoutPlayerOwner owner)
         {
@@ -46,7 +56,11 @@ namespace HideoutRoulette.Client.Wheel
             owner.ClearInteractionState();
             Camera.enabled = true;
             Lamp.enabled = true;
+            ApplyCameraAngle();
             ShowCursor(true);
+
+            _pointer = FindObjectOfType<UIPointer>();
+            SetPointerVisible(false);
         }
 
         public void Exit()
@@ -61,6 +75,7 @@ namespace HideoutRoulette.Client.Wheel
             Lamp.enabled = false;
             Highlight.gameObject.SetActive(false);
             ShowCursor(false);
+            SetPointerVisible(true);
 
             // Unity null check, the owner is gone if the hideout unloaded. Outside first person the game ignores input itself.
             if (_owner != null)
@@ -97,6 +112,7 @@ namespace HideoutRoulette.Client.Wheel
                 ShowCursor(true);
             }
 
+            ApplyCameraAngle();
             UpdateChipSelection();
 
             var spot = PickSpot(out var onWheel);
@@ -138,6 +154,20 @@ namespace HideoutRoulette.Client.Wheel
             }
         }
 
+        /// <summary>
+        ///     Swing the camera back from overhead towards the players side by the configured angle, always aimed at the pivot
+        /// </summary>
+        private void ApplyCameraAngle()
+        {
+            var angle = Plugin.CameraAngle.Value;
+            var radians = angle * Mathf.Deg2Rad;
+
+            // The player stands on the -Z side of the table
+            var offset = new Vector3(0f, Mathf.Cos(radians), -Mathf.Sin(radians)) * CameraDistance;
+            Camera.transform.localPosition = CameraPivot + offset;
+            Camera.transform.localRotation = Quaternion.Euler(90f - angle, 0f, 0f);
+        }
+
         private void UpdateChipSelection()
         {
             var chipCount = Table.ChipValues.Length;
@@ -165,19 +195,36 @@ namespace HideoutRoulette.Client.Wheel
             onWheel = false;
 
             var ray = Camera.ScreenPointToRay(Input.mousePosition);
-            if (!Physics.Raycast(ray, out var hit, PickDistance, _pickMask))
+
+            // Worked out from where the cursor meets the table rather than with a physics ray. Spot colliders stand above
+            // the felt, so from an angled camera a ray would hit the side of a neighbouring spot before reaching the printed
+            // cell, and other interactable volumes in the hideout can sit between the camera and the table.
+            var origin = transform.InverseTransformPoint(ray.origin);
+            var direction = transform.InverseTransformDirection(ray.direction);
+            if (direction.y >= 0f)
             {
                 return null;
             }
 
-            var spot = hit.collider.GetComponent<BetSpot>();
-            if (spot != null && spot.Table == Table)
+            // The wheel is a disc at the height of its rim
+            var onRim = origin + direction * ((WheelRimHeight - origin.y) / direction.y);
+            var fromAxis = onRim - Table.WheelCentre;
+            if (new Vector2(fromAxis.x, fromAxis.z).magnitude <= WheelRadius)
             {
-                return spot;
+                onWheel = true;
+
+                return null;
             }
 
-            var wheelSpot = hit.collider.GetComponent<WheelSpot>();
-            onWheel = wheelSpot != null && wheelSpot.Table == Table;
+            var onFelt = origin + direction * ((FeltHeight - origin.y) / direction.y);
+            foreach (var spot in Table.Spots)
+            {
+                var offset = onFelt - spot.transform.localPosition;
+                if (Mathf.Abs(offset.x) <= spot.Size.x / 2f && Mathf.Abs(offset.z) <= spot.Size.y / 2f)
+                {
+                    return spot;
+                }
+            }
 
             return null;
         }
@@ -190,9 +237,8 @@ namespace HideoutRoulette.Client.Wheel
                 return;
             }
 
-            var size = ((BoxCollider)spot.GetComponent<Collider>()).size;
             Highlight.localPosition = spot.transform.localPosition + Vector3.up * HighlightLift;
-            Highlight.localScale = new Vector3(size.x, size.z, 1f);
+            Highlight.localScale = new Vector3(spot.Size.x, spot.Size.y, 1f);
         }
 
         private void OnGUI()
@@ -224,7 +270,17 @@ namespace HideoutRoulette.Client.Wheel
                 + "C clear bets    R repeat last bets    Esc leave\n"
                 + $"Last spin: {Table.LastResult ?? "none yet"}";
 
-            GUI.Box(new Rect(20f, 20f, 560f, 195f), text, _hudStyle);
+            // Pinned to the top right corner
+            GUI.Box(new Rect(Screen.width - HudWidth - HudMargin, HudMargin, HudWidth, HudHeight), text, _hudStyle);
+        }
+
+        private void SetPointerVisible(bool visible)
+        {
+            // Unity null check, the games UI may have been rebuilt since the pointer was found
+            if (_pointer != null)
+            {
+                _pointer.gameObject.SetActive(visible);
+            }
         }
 
         private static void ShowCursor(bool visible)

@@ -11,26 +11,44 @@ namespace HideoutRoulette.Client
     [BepInDependency("com.SPT.core")]
     public class Plugin : BaseUnityPlugin
     {
+        // Where the table lives unless the player moves it
+        private static readonly Vector3 _defaultPosition = new Vector3(0.85f, 0.01f, -0.75f);
+        private const float DefaultYaw = 0f;
+
         internal static ManualLogSource Log;
 
-        internal static ConfigEntry<KeyboardShortcut> PlaceWheelKey;
-        internal static ConfigEntry<bool> WheelPlaced;
-        internal static ConfigEntry<Vector3> WheelPosition;
-        internal static ConfigEntry<float> WheelYaw;
+        internal static ConfigEntry<Vector3> TablePosition;
+        internal static ConfigEntry<float> TableYaw;
+        internal static ConfigEntry<KeyboardShortcut> MoveTableKey;
+        internal static ConfigEntry<float> CameraAngle;
 
         private void Awake()
         {
             Log = Logger;
 
-            PlaceWheelKey = Config.Bind(
+            // Section and key names are kept from the first builds so existing configs carry over
+            TablePosition = Config.Bind("Placement", "Wheel position", _defaultPosition, "World position of the roulette table in the hideout");
+            TableYaw = Config.Bind("Placement", "Wheel rotation", DefaultYaw, "Rotation of the roulette table around the vertical axis, in degrees");
+            MoveTableKey = Config.Bind(
                 "Placement",
                 "Place wheel here",
-                new KeyboardShortcut(KeyCode.F9),
-                "While walking around the hideout, moves the roulette wheel to the spot in front of you"
+                KeyboardShortcut.Empty,
+                "Unbound by default. While walking around the hideout, moves the roulette table to the spot in front of you. "
+                    + "Reset the position and rotation settings to put it back."
             );
-            WheelPlaced = Config.Bind("Placement", "Wheel placed", false, "Has the wheel been given a position in the hideout");
-            WheelPosition = Config.Bind("Placement", "Wheel position", Vector3.zero, "World position of the wheel in the hideout");
-            WheelYaw = Config.Bind("Placement", "Wheel rotation", 0f, "Rotation of the wheel around the vertical axis, in degrees");
+
+            CameraAngle = Config.Bind(
+                "Camera",
+                "Camera angle",
+                45f,
+                new ConfigDescription(
+                    "Tilt of the camera while playing, in degrees. 0 looks straight down at the table, higher values view it from the players side.",
+                    new AcceptableValueRange<float>(0f, 75f)
+                )
+            );
+
+            TablePosition.SettingChanged += (sender, args) => WheelSpawner.ApplyPlacement();
+            TableYaw.SettingChanged += (sender, args) => WheelSpawner.ApplyPlacement();
 
             new HideoutPlayerOwnerInitPatch().Enable();
             new HideoutPlayerOwnerTranslateCommandPatch().Enable();
@@ -38,7 +56,7 @@ namespace HideoutRoulette.Client
 
         private void Update()
         {
-            if (PlaceWheelKey.Value.IsDown())
+            if (MoveTableKey.Value.IsDown())
             {
                 WheelSpawner.PlaceInFrontOfPlayer();
             }

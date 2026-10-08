@@ -14,6 +14,10 @@ namespace HideoutRoulette.Client.Wheel
         private const float HudHeight = 195f;
         private const float HudMargin = 20f;
 
+        // Time the camera takes to travel between the players eyes and the play view
+        private const float TransitionSeconds = 0.5f;
+        private const float PlayFieldOfView = 60f;
+
         public RouletteTable Table;
         public Camera Camera;
         public Light Lamp;
@@ -37,6 +41,15 @@ namespace HideoutRoulette.Client.Wheel
         private int _chipIndex;
         private GUIStyle _hudStyle;
 
+        // 0 at the players own view, 1 in the play view. Betting only works once it has fully arrived.
+        private float _transition;
+        private bool _leaving;
+
+        // The players view when they sat down, where the camera starts from and returns to
+        private Vector3 _eyePosition;
+        private Quaternion _eyeRotation;
+        private float _eyeFieldOfView;
+
         /// <summary>
         ///     Table currently being played, null when the player is walking around
         /// </summary>
@@ -54,23 +67,53 @@ namespace HideoutRoulette.Client.Wheel
 
             GamePlayerOwner.SetIgnoreInput(true);
             owner.ClearInteractionState();
+
+            // Start exactly where the player is looking from, or already in place if their camera cannot be found
+            _leaving = false;
+            _transition = 1f;
+            if (CameraClass.Exist && CameraClass.Instance.Camera != null)
+            {
+                var eyes = CameraClass.Instance.Camera;
+                _eyePosition = eyes.transform.position;
+                _eyeRotation = eyes.transform.rotation;
+                _eyeFieldOfView = eyes.fieldOfView;
+                _transition = 0f;
+            }
+
             Camera.enabled = true;
             Lamp.enabled = true;
-            ApplyCameraAngle();
+            ApplyCamera();
             ShowCursor(true);
 
             _pointer = FindObjectOfType<UIPointer>();
             SetPointerVisible(false);
         }
 
-        public void Exit()
+        /// <summary>
+        ///     Leave the play view. The camera travels back to the players eyes first unless told to cut straight away.
+        /// </summary>
+        public void Exit(bool immediately = false)
         {
             if (Current != this)
             {
                 return;
             }
 
+            if (!immediately && _transition > 0f)
+            {
+                // Nothing more to do if it is already on its way back
+                if (!_leaving)
+                {
+                    _leaving = true;
+                    Highlight.gameObject.SetActive(false);
+                    ShowCursor(false);
+                }
+
+                return;
+            }
+
             Current = null;
+            _leaving = false;
             Camera.enabled = false;
             Lamp.enabled = false;
             Highlight.gameObject.SetActive(false);
@@ -89,7 +132,7 @@ namespace HideoutRoulette.Client.Wheel
 
         private void OnDisable()
         {
-            Exit();
+            Exit(true);
         }
 
         private void Update()
@@ -99,9 +142,28 @@ namespace HideoutRoulette.Client.Wheel
                 return;
             }
 
-            if (_owner == null || !_owner.FirstPersonMode || Input.GetKeyDown(KeyCode.Escape))
+            // The hideout view the camera would return to is gone
+            if (_owner == null || !_owner.FirstPersonMode)
+            {
+                Exit(true);
+
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.Escape))
             {
                 Exit();
+            }
+
+            _transition = Mathf.Clamp01(_transition + (_leaving ? -1f : 1f) * Time.deltaTime / TransitionSeconds);
+            ApplyCamera();
+
+            if (_leaving)
+            {
+                if (_transition <= 0f)
+                {
+                    Exit(true);
+                }
 
                 return;
             }
@@ -112,7 +174,11 @@ namespace HideoutRoulette.Client.Wheel
                 ShowCursor(true);
             }
 
-            ApplyCameraAngle();
+            if (_transition < 1f)
+            {
+                return;
+            }
+
             UpdateChipSelection();
 
             var spot = PickSpot(out var onWheel);
@@ -155,17 +221,26 @@ namespace HideoutRoulette.Client.Wheel
         }
 
         /// <summary>
-        ///     Swing the camera back from overhead towards the players side by the configured angle, always aimed at the pivot
+        ///     Place the camera for the current point in the transition. The play view is swung back from overhead towards
+        ///     the players side by the configured angle, always aimed at the pivot.
         /// </summary>
-        private void ApplyCameraAngle()
+        private void ApplyCamera()
         {
             var angle = Plugin.CameraAngle.Value;
             var radians = angle * Mathf.Deg2Rad;
 
             // The player stands on the -Z side of the table
             var offset = new Vector3(0f, Mathf.Cos(radians), -Mathf.Sin(radians)) * CameraDistance;
-            Camera.transform.localPosition = CameraPivot + offset;
-            Camera.transform.localRotation = Quaternion.Euler(90f - angle, 0f, 0f);
+            var playPosition = transform.TransformPoint(CameraPivot + offset);
+            var playRotation = transform.rotation * Quaternion.Euler(90f - angle, 0f, 0f);
+
+            // Eases out of one view and into the other
+            var blend = Mathf.SmoothStep(0f, 1f, _transition);
+            Camera.transform.SetPositionAndRotation(
+                Vector3.Lerp(_eyePosition, playPosition, blend),
+                Quaternion.Slerp(_eyeRotation, playRotation, blend)
+            );
+            Camera.fieldOfView = Mathf.Lerp(_eyeFieldOfView, PlayFieldOfView, blend);
         }
 
         private void UpdateChipSelection()
@@ -243,7 +318,8 @@ namespace HideoutRoulette.Client.Wheel
 
         private void OnGUI()
         {
-            if (Current != this)
+            // Only once the camera has settled on the table
+            if (Current != this || _leaving || _transition < 1f)
             {
                 return;
             }

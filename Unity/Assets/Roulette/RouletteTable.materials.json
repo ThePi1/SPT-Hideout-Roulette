@@ -1,0 +1,164 @@
+{
+  "materials": [
+    {
+      "name": "Wood",
+      "r": 0.16,
+      "g": 0.06,
+      "b": 0.025,
+      "metallic": 0.0,
+      "roughness": 0.65
+    },
+    {
+      "name": "WoodLight",
+      "r": 0.42,
+      "g": 0.2,
+      "b": 0.08,
+      "metallic": 0.0,
+      "roughness": 0.6
+    },
+    {
+      "name": "Brass",
+      "r": 0.83,
+      "g": 0.62,
+      "b": 0.25,
+      "metallic": 1.0,
+      "roughness": 0.3
+    },
+    {
+      "name": "Leather",
+      "r": 0.045,
+      "g": 0.02,
+      "b": 0.012,
+      "metallic": 0.0,
+      "roughness": 0.55
+    },
+    {
+      "name": "Felt",
+      "r": 0.015,
+      "g": 0.19,
+      "b": 0.07,
+      "metallic": 0.0,
+      "roughness": 0.95
+    },
+    {
+      "name": "LayoutPrint",
+      "r": 0.85,
+      "g": 0.78,
+      "b": 0.55,
+      "metallic": 0.0,
+      "roughness": 0.85
+    },
+    {
+      "name": "LayoutRed",
+      "r": 0.5,
+      "g": 0.03,
+      "b": 0.03,
+      "metallic": 0.0,
+      "roughness": 0.9
+    },
+    {
+      "name": "LayoutBlack",
+      "r": 0.012,
+      "g": 0.012,
+      "b": 0.012,
+      "metallic": 0.0,
+      "roughness": 0.9
+    },
+    {
+      "name": "LayoutGreen",
+      "r": 0.03,
+      "g": 0.36,
+      "b": 0.12,
+      "metallic": 0.0,
+      "roughness": 0.9
+    },
+    {
+      "name": "PocketRed",
+      "r": 0.55,
+      "g": 0.03,
+      "b": 0.03,
+      "metallic": 0.0,
+      "roughness": 0.45
+    },
+    {
+      "name": "PocketBlack",
+      "r": 0.02,
+      "g": 0.02,
+      "b": 0.02,
+      "metallic": 0.0,
+      "roughness": 0.45
+    },
+    {
+      "name": "PocketGreen",
+      "r": 0.02,
+      "g": 0.33,
+      "b": 0.1,
+      "metallic": 0.0,
+      "roughness": 0.45
+    },
+    {
+      "name": "Numbers",
+      "r": 0.92,
+      "g": 0.9,
+      "b": 0.82,
+      "metallic": 0.0,
+      "roughness": 0.5
+    },
+    {
+      "name": "Ball",
+      "r": 0.93,
+      "g": 0.91,
+      "b": 0.84,
+      "metallic": 0.0,
+      "roughness": 0.2
+    },
+    {
+      "name": "ChipWhite",
+      "r": 0.88,
+      "g": 0.87,
+      "b": 0.82,
+      "metallic": 0.0,
+      "roughness": 0.4
+    },
+    {
+      "name": "ChipRed",
+      "r": 0.6,
+      "g": 0.04,
+      "b": 0.04,
+      "metallic": 0.0,
+      "roughness": 0.4
+    },
+    {
+      "name": "ChipGreen",
+      "r": 0.03,
+      "g": 0.4,
+      "b": 0.12,
+      "metallic": 0.0,
+      "roughness": 0.4
+    },
+    {
+      "name": "ChipBlack",
+      "r": 0.02,
+      "g": 0.02,
+      "b": 0.02,
+      "metallic": 0.0,
+      "roughness": 0.4
+    },
+    {
+      "name": "ChipInlayBlue",
+      "r": 0.05,
+      "g": 0.15,
+      "b": 0.55,
+      "metallic": 0.0,
+      "roughness": 0.4
+    },
+    {
+      "name": "ChipInlayCream",
+      "r": 0.9,
+      "g": 0.85,
+      "b": 0.7,
+      "metallic": 0.0,
+      "roughness": 0.4
+    }
+  ]
+}

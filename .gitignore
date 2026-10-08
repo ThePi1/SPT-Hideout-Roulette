@@ -3,3 +3,15 @@ obj/
 dist/
 .vs/
 *.user
+
+# Unity generated folders
+Unity/Library/
+Unity/Temp/
+Unity/Logs/
+Unity/UserSettings/
+Unity/Build/
+Unity/*.csproj
+Unity/*.sln
+
+# Blender preview renders
+Art/preview/

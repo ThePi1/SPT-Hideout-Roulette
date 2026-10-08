@@ -14,21 +14,36 @@ namespace HideoutRoulette.Client.Wheel
     /// </summary>
     public class BetSpot : InteractiveShootingRange
     {
-        private const float ChipRadius = 0.022f;
-        private const float ChipThickness = 0.007f;
-        private const int MaxChipsShown = 9;
+        private const int MaxChipsPerStack = 20;
 
-        private static readonly Color[] _chipColors =
+        // Half the distance between neighbouring stacks, a little over a chips radius
+        private const float StackSpacing = 0.0225f;
+
+        // Where each stack stands on the spot (x, z from its centre), by how many stacks there are
+        private static readonly Vector2[][] _stackOffsets =
         {
-            new Color(0.9f, 0.9f, 0.85f),
-            new Color(0.75f, 0.1f, 0.1f),
-            new Color(0.1f, 0.25f, 0.7f),
-            new Color(0.8f, 0.65f, 0.15f),
+            new[] { Vector2.zero },
+            new[] { new Vector2(-StackSpacing, 0f), new Vector2(StackSpacing, 0f) },
+            new[] { new Vector2(-StackSpacing, StackSpacing), new Vector2(StackSpacing, StackSpacing), new Vector2(0f, -StackSpacing) },
+            new[]
+            {
+                new Vector2(-StackSpacing, StackSpacing),
+                new Vector2(StackSpacing, StackSpacing),
+                new Vector2(-StackSpacing, -StackSpacing),
+                new Vector2(StackSpacing, -StackSpacing),
+            },
         };
+
+        // Each chip is turned a little from the one below so the edge inlays do not line up
+        private const float ChipTwistDegrees = 37f;
 
         public RouletteTable Table;
         public SpotDefinition Definition;
-        public Transform ChipStack;
+
+        // Width and depth of the printed cell on the felt
+        public Vector2 Size;
+
+        private readonly List<GameObject> _chips = new List<GameObject>();
 
         public override ActionsReturnClass InteractionStates(HideoutPlayerOwner owner)
         {
@@ -36,31 +51,48 @@ namespace HideoutRoulette.Client.Wheel
         }
 
         /// <summary>
-        ///     Show a stack of chips for the amount bet here, none for zero
+        ///     Show the chips that make up the amount bet here, one stack per denomination, none for zero
         /// </summary>
         public void ShowChips(long amount, long smallestChip)
         {
-            ChipStack.gameObject.SetActive(amount > 0);
+            foreach (var chip in _chips)
+            {
+                Destroy(chip);
+            }
+
+            _chips.Clear();
             if (amount <= 0)
             {
                 return;
             }
 
-            // Use the largest chip denomination that fits so stacks stay short
-            var tier = 0;
-            var chipValue = smallestChip;
-            while (tier < _chipColors.Length - 1 && amount >= chipValue * 10)
+            // Break the amount into chips the way a croupier would, largest denomination first. Each tier is worth ten of
+            // the one below, so only the top tier can need more than nine chips.
+            var stacks = new List<(int Tier, int Count)>();
+            var remaining = amount;
+            for (var tier = Table.ChipTemplates.Length - 1; tier >= 0; tier--)
             {
-                chipValue *= 10;
-                tier++;
+                var chipValue = smallestChip * (long)Mathf.Pow(10f, tier);
+                var count = (int)Mathf.Min(MaxChipsPerStack, remaining / chipValue);
+                remaining %= chipValue;
+                if (count > 0)
+                {
+                    stacks.Add((tier, count));
+                }
             }
 
-            var height = Mathf.Min(MaxChipsShown, (int)(amount / chipValue)) * ChipThickness;
-
-            // Unity cylinders are 2 units tall and 1 unit wide
-            ChipStack.localScale = new Vector3(ChipRadius * 2f, height / 2f, ChipRadius * 2f);
-            ChipStack.localPosition = new Vector3(0f, height / 2f, 0f);
-            ChipStack.GetComponent<Renderer>().material.color = _chipColors[tier];
+            var offsets = _stackOffsets[stacks.Count - 1];
+            for (var stack = 0; stack < stacks.Count; stack++)
+            {
+                for (var i = 0; i < stacks[stack].Count; i++)
+                {
+                    var chip = Instantiate(Table.ChipTemplates[stacks[stack].Tier], transform);
+                    chip.transform.localPosition = new Vector3(offsets[stack].x, i * Table.ChipThickness, offsets[stack].y);
+                    chip.transform.localRotation = Quaternion.Euler(0f, i * ChipTwistDegrees, 0f);
+                    chip.SetActive(true);
+                    _chips.Add(chip);
+                }
+            }
         }
     }
 

@@ -23,8 +23,13 @@ namespace HideoutRoulette.Client.Wheel
 
         public Transform Disc;
         public Transform Ball;
+        // Win marker, its origin is at its base
         public Transform Dolly;
         public TablePlayMode PlayMode;
+
+        // One hidden chip per denomination tier, lowest first, copied into stacks on the betting spots
+        public GameObject[] ChipTemplates;
+        public float ChipThickness;
         public List<BetSpot> Spots = new List<BetSpot>();
 
         // Ball path, in the tables local space
@@ -33,6 +38,9 @@ namespace HideoutRoulette.Client.Wheel
         public float TrackHeight;
         public float PocketRadius;
         public float PocketHeight;
+
+        // Where each numbers pocket sits on the wheel at rest, in degrees clockwise from the tables +Z, indexed by number
+        public float[] PocketAngles;
 
         private readonly Dictionary<BetSpot, long> _bets = new Dictionary<BetSpot, long>();
         private Dictionary<BetSpot, long> _lastBets;
@@ -57,6 +65,8 @@ namespace HideoutRoulette.Client.Wheel
 
         private async void Start()
         {
+            // The ball starts in the zero pocket
+            _ballAngle = PocketAngles[0];
             SetBall(_ballAngle, PocketRadius, PocketHeight);
 
             var config = await RouletteApi.GetConfig();
@@ -77,6 +87,13 @@ namespace HideoutRoulette.Client.Wheel
         /// </summary>
         public ActionsReturnClass PlayPrompt(HideoutPlayerOwner owner)
         {
+            // The game asks again whenever the players view drifts onto another part of the table, which would bring
+            // the prompt back over the play view
+            if (TablePlayMode.Current != null)
+            {
+                return null;
+            }
+
             return new ActionsReturnClass
             {
                 Actions = new List<ActionsTypesClass> { new ActionsTypesClass { Name = "Play roulette", Action = () => PlayMode.Enter(owner) } },
@@ -197,7 +214,7 @@ namespace HideoutRoulette.Client.Wheel
         /// </summary>
         private IEnumerator Animate(RouletteSpinResult result)
         {
-            var pocketAngle = RouletteLayout.GetPocketAngle(result.Pocket);
+            var pocketAngle = PocketAngles[result.Pocket];
             var wheelStart = _wheelAngle;
             var ballStart = _ballAngle;
 
@@ -233,13 +250,13 @@ namespace HideoutRoulette.Client.Wheel
 
         private void Finish(RouletteSpinResult result)
         {
-            _ballAngle = _wheelAngle + RouletteLayout.GetPocketAngle(result.Pocket);
+            _ballAngle = _wheelAngle + PocketAngles[result.Pocket];
             SetBall(_ballAngle, PocketRadius, PocketHeight);
 
             var winningSpot = Spots.FirstOrDefault(spot => spot.Definition.Type == "straight" && spot.Definition.Value == result.Pocket);
             if (winningSpot != null)
             {
-                Dolly.position = winningSpot.transform.position + transform.up * (Dolly.localScale.y);
+                Dolly.position = winningSpot.transform.position;
                 Dolly.gameObject.SetActive(true);
             }
 
